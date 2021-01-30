@@ -2,10 +2,13 @@
 <html>
 <head>
     <meta charset="utf-8">
+		<!-- Set brawser's rendaling size. device-width means adjust rendaling size to device's screen size -->
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Welcome to FirebaseRTC</title>
+		<!-- load Material Components which are precompiled all-in-one CSS and JS bundles from unpkg -->
     <link href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css" rel="stylesheet">
     <script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script>
+		<!-- Using Material Icons from Google Fonts -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
 
     <!-- update the version number as needed -->
@@ -20,7 +23,11 @@
 <body>
 <h1>Welcome to FirebaseRTC!</h1>
 <div id="buttons">
+		<!-- buttonにclass名mdc-buttonとmdc-button-raisedをつけて、かつid名cameraBthをつけている -->
     <button class="mdc-button mdc-button--raised" id="cameraBtn">
+				<!-- iタグの中でアイコンフォントをclass名で指定している。headerでmaterial iconsをインストールしてる -->
+				<!-- aria-hidden="true"を指定するとアイコンフォントの音声読み上げがスキップされる -->
+				<!-- また、ダイアログ表示時にaria-hidden="true"対象のコンテンツが操作不可能になる -->
         <i class="material-icons mdc-button__icon" aria-hidden="true">perm_camera_mic</i>
         <span class="mdc-button__label">Open camera & microphone</span>
     </button>
@@ -38,21 +45,35 @@
     </button>
 </div>
 <div>
+		<!-- spanは改行無しグループ化用タグ -->
     <span id="currentRoom"></span>
 </div>
 <div id="videos">
+		<!-- muted属性を指定すると初期状態が消音になる。ローカル側の動画は音声が再生されないようにしている -->
+		<!-- playsinline属性を指定すると要素の再生領域内で映像を再生する。 -->
     <video id="localVideo" muted autoplay playsinline></video>
+		<!-- videoタグにautoplay属性が指定されると再生可能になった時点で即座に再生が始まる -->
     <video id="remoteVideo" autoplay playsinline></video>
+		<!-- 補足：src属性のなかに表示したいメディアへのパスを含めると、その動画が再生可能になる -->
 </div>
+<!-- role="alertdialog"としておくと、モーダルウィンドウが開くと同時にダイアログと表示してくれる -->
+<!-- modalとはページ上にウインドウをオーバーレイ表示させるもの -->
+<!-- この下のdiv要素では、Join roomボタンを押下した時のモーダルウィンドウの設定が書かれている -->
+<!-- mdc-dialogはmdc-dialog__containerとmdc-dialog__surfaceを含むDOM要素のROOTで、必須の要素 -->
 <div class="mdc-dialog"
      id="room-dialog"
      role="alertdialog"
      aria-modal="true"
      aria-labelledby="my-dialog-title"
      aria-describedby="my-dialog-content">
+		<!-- 必須の要素 -->
     <div class="mdc-dialog__container">
+				<!-- 必須の要素。ダイアログのはこを定義する -->
         <div class="mdc-dialog__surface">
+						<!-- my-dialog-titleがaria-labelledbyと関連付けられている -->
+						<!-- mdc_dialog_titleはオプショナル。 タイトル -->
             <h2 class="mdc-dialog__title" id="my-dialog-title">Join room</h2>
+						<!-- mdc_dialog_contentもオプショナル。中身 -->
             <div class="mdc-dialog__content" id="my-dialog-content">
                 Enter ID for room to join:
                 <div class="mdc-text-field">
@@ -72,6 +93,7 @@
             </footer>
         </div>
     </div>
+		<!-- 必須要素。ダイアログの背景を半透明にするやつ -->
     <div class="mdc-dialog__scrim"></div>
 </div>
 <script src="app.js"></script>
