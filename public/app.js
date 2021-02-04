@@ -1,8 +1,5 @@
-// DocumentのquerySelector()メソッドは指定されたセレクタのグループに一致する、文書内の最初のElementを返す
-// 一致するものが見つからない場合はnullを返す
 mdc.ripple.MDCRipple.attachTo(document.querySelector('.mdc-button'));
 
-// ice serverにgoogleのstunサーバを登録
 const configuration = {
   iceServers: [
     {
@@ -15,134 +12,67 @@ const configuration = {
   iceCandidatePoolSize: 10,
 };
 
-let peerConnection = null;
 let localStream = null;
-let remoteStream = null;
 let roomDialog = null;
 let roomId = null;
+let localUserId = null;
+
+let peerConnections = {};
+let dataChannels ={};
+let remoteStreams = [];
 
 function init() {
-	// id属性：cameraBtnがクリックされた時にopenUserMedia()関数を呼び出す
-	// target.addEventListener(type, listener[, options]);
-	// 特定のイベントが対象に配信されるたびに呼び出される関数を設定します。
-	// 対象としてよくあるものはElement,Document,Windowですが、あらゆるオブジェクトが対象となる
   document.querySelector('#cameraBtn').addEventListener('click', openUserMedia);
-	// id属性：hangupBtnがクリックされた時にhangUp関数を呼び出す
   document.querySelector('#hangupBtn').addEventListener('click', hangUp);
-	// id属性：createBtnがクリックされた時にcreateRoom()関数を呼び出す
   document.querySelector('#createBtn').addEventListener('click', createRoom);
-	// id属性：joinBtnがクリックされた時にjoinRoom関数を呼び出す
   document.querySelector('#joinBtn').addEventListener('click', joinRoom);
-	// MDCDialogオブジェクトをroomDialog変数に格納する
-	// mdc_dialogを使うときのおまじない
-	// #はid属性のセレクタを表す
   roomDialog = new mdc.dialog.MDCDialog(document.querySelector('#room-dialog'));
 }
 
 async function createRoom() {
   document.querySelector('#createBtn').disabled = true;
   document.querySelector('#joinBtn').disabled = true;
+
+	// firestore接続用オブジェクトの作成
   const db = firebase.firestore();
-	// roomsというコレクション内に作ったドキュメントへのリファレンスをroomRefオブジェクトに格納
-	// .doc()とするとドキュメント名に勝手に一意なIDがされる
+
+	// firestoreコレクションroomsに任意の文字列のドキュメント作成
   const roomRef = await db.collection('rooms').doc();
+	// ドキュメントの文字列をroom idとする
+	roomId = roomRef.id
 
-  console.log('Create PeerConnection with configuration: ', configuration);
+	// room idをjoinRoom()でgetするためのdummyドキュメントを登録
+	roomRef.set({
+		dummy: "dummy"
+	});	
 
-	// ＃＃＃ice serverの情報をもとにRTCPeerConnectionオブジェクトを作成
-  peerConnection = new RTCPeerConnection(configuration);
+	// firestoreのroomメンバに自分自身（ローカルユーザ）を追加
+	const localUserRef = await roomRef.collection('users').doc();
+	// user idをローカル変数に代入
+	localUserId = localUserRef.id
+	console.log('local user id: ', localUserId);
 
-  registerPeerConnectionListeners();
+	// firestoreに自分自身のuserIdを追加する
+  localUserRef.set({
+		userId: localUserId
+	});
 
-	// ＃＃＃peerConnectinにローカルデバイスのtrack(音声、映像)を追加する
-	// =>はallow関数。 関数式の簡易表示。
-	// getTracks()で得られた配列の値を trackにいれて、peerConnection.addTrackを実行
-  localStream.getTracks().forEach(track => {
-		// addTrackはストリームへ新しいトラックを追加するメソッド
-    peerConnection.addTrack(track, localStream);
-  });
-
-	
-	// roomRefオブジェクトから'callerCandidates'コレクションを取得
-  const callerCandidatesCollection = roomRef.collection('callerCandidates');
-
-	// ＃＃＃発信側のICE Candidates(通信経路候補)を取得できた際の処理を記述
-  peerConnection.addEventListener('icecandidate', event => {
-    if (!event.candidate) {
-      console.log('Got final candidate!');
-      return;
-    }
-    console.log('Got candidate: ', event.candidate);
-		// シグナリングサーバーに登録している？発信側の通信経路に値をjson型式で追加
-    callerCandidatesCollection.add(event.candidate.toJSON());
-  });
-
-  // ＃＃＃ローカルデバイスのSDPオファーを作成し、シグナリングサーバに登録
-  const offer = await peerConnection.createOffer();
-  await peerConnection.setLocalDescription(offer);
-  console.log('Created offer:', offer);
-
-  const roomWithOffer = {
-    'offer': {
-      type: offer.type,
-      sdp: offer.sdp,
-    },
-  };
-	// set()メソッドでドキュメントの追加
-	// roomコレクションの中にofferサブコレクション追加
-	// データはtypeとsdp
-  await roomRef.set(roomWithOffer);
-	// db.collection('rooms').doc();で追加したID（＝ドキュメント名）を取得
+	// room idを画面に表示
   roomId = roomRef.id;
-  console.log(`New room created with SDP offer. Room ID: ${roomRef.id}`);
+  console.log(`New room created. Room ID: ${roomRef.id}`);
   document.querySelector(
-      '#currentRoom').innerText = `Current room is ${roomRef.id} - You are the caller!`;
+    '#currentRoom').innerText = `Current room is ${roomRef.id} - You are the caller!`;
 
-	// ＃＃＃ここから、リモートデバイス側のtrack,sdp,iceをリッスン
-	// EventListenerで上記を検知した場合に、接続を開始する
-  peerConnection.addEventListener('track', event => {
-    console.log('Got remote track:', event.streams[0]);
-    event.streams[0].getTracks().forEach(track => {
-      console.log('Add a track to the remoteStream:', track);
-      remoteStream.addTrack(track);
-    });
-  });
+	// SDP offerの待ち受けとSDP answerの返信
+	await waitOffer(roomRef);
 
-  // Listening for remote session description below
-	// onSnapshotでroomRefオブジェクトのすべてのドキュメントを取得する
-  roomRef.onSnapshot(async snapshot => {
-		// ドキュメントの中のデータを変数dataに代入
-    const data = snapshot.data();
-		// 現在のリモートディスクリプションがnull　かつ　データにSDPアンサーが入っている場合
-    if (!peerConnection.currentRemoteDescription && data && data.answer) {
-      console.log('Got remote description: ', data.answer);
-			// peerConnectionにSDPアンサーを登録する
-      const rtcSessionDescription = new RTCSessionDescription(data.answer);
-      await peerConnection.setRemoteDescription(rtcSessionDescription);
-    }
-  });
-  // Listening for remote session description above
-
-	// roomRefオブジェクトの'calleeCandidates'コレクションのすべてのドキュメントを取得する
-  roomRef.collection('calleeCandidates').onSnapshot(snapshot => {
-		// ドキュメントの追加・削除・変更を監視
-    snapshot.docChanges().forEach(async change => {
-			// データが追加されたとき
-      if (change.type === 'added') {
-        let data = change.doc.data();
-        console.log(`Got new remote ICE candidate: ${JSON.stringify(data)}`);
-				// リモート側のICE CandidtesをpeerConnectionに追加する
-				// ★ローカル側のpeerConnectionオブジェクトに、DBからリモート側のiceをセットする
-        await peerConnection.addIceCandidate(new RTCIceCandidate(data));
-      }
-    });
-  });
 }
 
 function joinRoom() {
   document.querySelector('#createBtn').disabled = true;
   document.querySelector('#joinBtn').disabled = true;
 
+	// ダイアログ表示
   document.querySelector('#confirmJoinBtn').
       addEventListener('click', async () => {
         roomId = document.querySelector('#room-id').value;
@@ -155,97 +85,242 @@ function joinRoom() {
 }
 
 async function joinRoomById(roomId) {
+	// firestore接続用オブジェクトの作成
   const db = firebase.firestore();
-	// roomsコレクションの中のroomIdドキュメント値を取得
+
+	// firestoreからユーザが入力したroom idの情報を取得
   const roomRef = db.collection('rooms').doc(`${roomId}`);
   const roomSnapshot = await roomRef.get();
   console.log('Got room:', roomSnapshot.exists);
 
 	// roomIDが存在する場合
   if (roomSnapshot.exists) {
-    console.log('Create PeerConnection with configuration: ', configuration);
-		// RTCpeerConnectionオブジェクトをconfigから生成(=calleerとcalleeは同じturnサーバを使う)
-    peerConnection = new RTCPeerConnection(configuration);
-    registerPeerConnectionListeners();
-		// (remote側の)ローカルストリーム情報をpeerConnectionオブジェクトにに追加
-    localStream.getTracks().forEach(track => {
-      peerConnection.addTrack(track, localStream);
-    });
 
-		// roomRefオブジェクトに'calleeCandidates'コレクションを追加する
-    const calleeCandidatesCollection = roomRef.collection('calleeCandidates');
-		// ICE Candidateが登録されたことを監視
-    peerConnection.addEventListener('icecandidate', event => {
-      if (!event.candidate) {
-        console.log('Got final candidate!');
-        return;
+		// firestoreのusersコレクションのドキュメントIDから自分自身のユーザIDを取得
+		const localUserRef = await roomRef.collection('users').doc();
+		localUserId = localUserRef.id
+		console.log('local user id: ', localUserId);
+
+		// 入室済みのユーザIDを取得して、 peer connectionの作成
+		roomRef.collection('users').get().then(querySnapshot => {
+      querySnapshot.forEach(user => {
+				// ユーザIDが自分自身と異なる場合
+				if (user.id != localUserId) {
+					// peerConnection作成
+					peerConnections[user.id] = new RTCPeerConnection(configuration)
+					console.log('Create PeerConnection with configuration: ', configuration);
+
+					// peerConnectionのイベントリスナー登録
+					registerPeerConnectionListeners(user.id);
+					console.log('Register peerConnection listener: ', user.id);
+
+					// firestoreのpeerConnectionsコレクションへの参照を準備
+					const peerConnectionsRef = roomRef.collection('peerConnections').doc();
+
+					// firestoreにoffer userとanswer userを登録
+					peerConnectionsRef.set({
+					  offerUserId: localUserId,
+					  answerUserId: user.id,
+					});
+
+					// ローカルストリーム情報をpeerConnectionオブジェクトに追加
+					localStream.getTracks().forEach(track => {
+					  peerConnections[user.id].addTrack(track, localStream);
+					});
+	
+					// peerConnections[user.id]のICE Candidateをリッスン
+					peerConnections[user.id].addEventListener('icecandidate', event => {
+						if (!event.candidate) {
+							console.log('Got final candidate!');
+							return;
+						}
+						console.log('Got cadidate: ', event.candidate);
+						// firestoreにローカルのICE Candidate情報を登録
+						peerConnectionsRef.collection('callerCandidates').add(event.candidate.toJSON());
+					});
+
+				  // SDP Offerの作成
+					peerConnections[user.id].createOffer().then(offer => {
+						peerConnections[user.id].setLocalDescription(offer);
+						console.log('Created offer:', offer);
+	
+						const peerConnWithOffer = {
+							'offer': {
+								type: offer.type,
+								sdp: offer.sdp,
+							},
+						};
+						// firestoreにSDP Offerを登録
+						peerConnectionsRef.update(peerConnWithOffer);
+					});
+
+					// peerConnectionのトラックイベントをリッスン。リモートストリームの入力を監視する
+					onRemoteStream(user.id);
+				}
+			});
+		});
+
+		// firestoreに自分自身のuserを追加する
+		localUserRef.set({
+		  userId: localUserId
+		});
+
+		// SDP answer待機
+		roomRef.collection('peerConnections').where('offerUserId', '==', localUserId).onSnapshot(snapshot => {
+			snapshot.docChanges().forEach(async change => {
+				// データが変更されたとき
+				if (change.type === 'modified') {
+					const answerUserId = change.doc.data().answerUserId;
+					const answer = change.doc.data().answer;
+					const peerConnectionId = change.doc.id;
+
+					if (!peerConnections[answerUserId].currentRemoteDescription && answer) {
+						// SDP answerをpeer connectionにセット
+						await peerConnections[answerUserId].setRemoteDescription(new RTCSessionDescription(answer));
+						console.log('Got sdp answer from user: ', answerUserId);
+
+						// リモートユーザのICE Candidatesを取得する
+						await onIceCandidates(answerUserId, roomRef, peerConnectionId, 'calleeCandidates');
+					}
+				}
+			});
+		});
+
+		// SDP offerの待ち受けとSDP answerの返信
+		await waitOffer(roomRef)
+	}
+}
+
+async function waitOffer(roomRef) {
+	// 自分宛てのSDP Offerをリッスン
+	// memo: where() operator "!=" was released in version 7.21.0!!
+  roomRef.collection('peerConnections').where("answerUserId", "==", localUserId).onSnapshot(snapshot => {
+    snapshot.docChanges().forEach(async change => {
+      // データが変更されたとき（SDP offerが追加されたとき）
+      if (change.type === 'modified') {
+				//debug
+				console.log('peer connections collection is being modified: ', change.doc.data());
+
+        const offerUserId = change.doc.data().offerUserId;
+        const offer = change.doc.data().offer;
+        const peerConnectionId = change.doc.id;
+				
+				// SDP Offerが格納された場合、peerConnectionの作成と初期化
+				if (!peerConnections[offerUserId] && offer) {
+					console.log('Create PeerConnection with configuration: ', configuration);
+          peerConnections[offerUserId] = new RTCPeerConnection(configuration)
+
+					// peerConnectionのイベントリスナー登録
+          registerPeerConnectionListeners(offerUserId);
+          console.log('Register peerConnection listener: ', offerUserId);
+
+          // ローカルストリーム情報をpeerConnectionオブジェクトに追加
+          localStream.getTracks().forEach(track => {
+            peerConnections[offerUserId].addTrack(track, localStream);
+          });
+
+          console.log('Offer user: ', offerUserId);
+          console.log('Get remote sdp offer: ', offer);
+
+          // firestoreのpeerConnectionsコレクションへの参照を準備
+          const peerConnectionsRef = await roomRef.collection('peerConnections').doc(peerConnectionId);
+
+          // peerConnections[offerUserId]のICE Candidateをリッスン
+          peerConnections[offerUserId].addEventListener('icecandidate', event => {
+            if (!event.candidate) {
+              console.log('Got final candidate!');
+              return;
+           }
+            console.log('Got cadidate: ', event.candidate);
+            // firestoreにローカルのICE Candidate情報を登録
+            peerConnectionsRef.collection('calleeCandidates').add(event.candidate.toJSON());
+          });
+
+          // peerConnectionのトラックイベントをリッスン。リモートストリームの入力を監視する
+					await onRemoteStream(offerUserId);
+
+          // firestoreから取得したSDP OfferをpeerConnectionにセットする
+          await peerConnections[offerUserId].setRemoteDescription(new RTCSessionDescription(offer));
+
+          // SDP Answerを返す
+					await onCreateAnswer(offerUserId,  roomRef, peerConnectionId);
+
+					// リモートユーザのICE Candidatesを取得する
+					await onIceCandidates(offerUserId, roomRef, peerConnectionId, 'callerCandidates');
+        }
       }
-      console.log('Got candidate: ', event.candidate);
-			// ICE Candidate情報をcalleeCandidateコレクションに追加する
-      calleeCandidatesCollection.add(event.candidate.toJSON());
     });
+  });
+}
 
-		// trackが再生された場合（＝カメラとマイク？が有効化された場合）
-    peerConnection.addEventListener('track', event => {
-      console.log('Got remote track:', event.streams[0]);
-      event.streams[0].getTracks().forEach(track => {
-        console.log('Add a track to the remoteStream:', track);
-				// リモートストリームにtrackを追加する
-        remoteStream.addTrack(track);
-      });
-    });
+async function onCreateAnswer(userId, roomRef, peerConnectionId) {
+	peerConnections[userId].createAnswer().then(answer => {
+    peerConnections[userId].setLocalDescription(answer);
+    console.log('Created answer: ', answer);
 
-    // roomのデータからofferの値を取得
-    const offer = roomSnapshot.data().offer;
-    console.log('Got offer:', offer);
-		// リモート側のSDPにオファー値をセットする
-    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-		// リモート側のSDPからアンサー値を取得する
-    const answer = await peerConnection.createAnswer();
-    console.log('Created answer:', answer);
-		// ローカル側のSDPにアンサー値をセットする
-    await peerConnection.setLocalDescription(answer);
-
-    const roomWithAnswer = {
-      answer: {
+    const peerConnWithAnswer = {
+      'answer': {
         type: answer.type,
         sdp: answer.sdp,
       },
     };
-		// ドキュメントの特定のフィールドをupdateで更新 or 追加
-		// すでに存在するroomのanswerサブコレクションを更新
-		// DBのanswer値を追加することで、createRoom関数で監視しているローカル側のsdp,iceを更新する
-    await roomRef.update(roomWithAnswer);
-
-    // callerCandidatesコレクションのすべてのドキュメントを取得する
-    roomRef.collection('callerCandidates').onSnapshot(snapshot => {
-      snapshot.docChanges().forEach(async change => {
-				// データが追加された場合
-        if (change.type === 'added') {
-          let data = change.doc.data();
-          console.log(`Got new remote ICE candidate: ${JSON.stringify(data)}`);
-					// リモート側のpeerConnectionに、ローカル側のiceをセットする。値はDBから取得する
-          await peerConnection.addIceCandidate(new RTCIceCandidate(data));
-        }
-      });
-    });
-  }
+    roomRef.collection('peerConnections').doc(peerConnectionId).update(peerConnWithAnswer);
+    console.log('Set answer to firestore!');
+  });
 }
 
+async function onIceCandidates(userId, roomRef, peerConnectionId, callerOrCallee) {
+	roomRef.collection('peerConnections').doc(peerConnectionId).collection(callerOrCallee).onSnapshot(snapshot => {
+    snapshot.docChanges().forEach(async change => {
+      if (change.type === 'added') {
+        console.log('Got ice candidates from caller!');
+				let data = change.doc.data();
+
+        console.log(`got remote ICE candidate: ${JSON.stringify(data)}`);
+        // peerConnectionにICE Candidatesを登録する
+				await peerConnections[userId].addIceCandidate(new RTCIceCandidate(data)).then(onAddIceCandidateSuccess, onAddIceCandidateError);
+      }
+    });
+  });
+}
+
+function onAddIceCandidateSuccess() {
+  console.log('AddIceCandidate success.');
+}
+
+function onAddIceCandidateError(error) {
+  console.log(`Failed to add ICE candidate: ${error.toString()}`);
+}
+
+async function onRemoteStream(userId) {
+	peerConnections[userId].addEventListener('track', event => {
+    remoteStream = new MediaStream();
+    console.log('Got remote track:', event.streams[0]);
+    event.streams[0].getTracks().forEach(track => {
+      console.log('Add a track to the remoteStream:', track);
+      remoteStream.addTrack(track);
+    });
+    remoteStreams.push(remoteStream);
+    // TODO:#remoteVideoタグを接続数に応じて変更できるようにする
+		if (remoteStreams.length == 1) {
+			document.querySelector('#remoteVideo-1').srcObject = remoteStreams[0];
+		} else if (remoteStreams.length == 2) {
+      document.querySelector('#remoteVideo-2').srcObject = remoteStreams[1];
+    } else if (remoteStreams.length >= 3) {
+			document.querySelector('#remoteVideo-2').srcObject = remoteStreams[2];
+		}
+  });
+}
+					
 async function openUserMedia(e) {
-	// streamにビデオと音声のデバイス情報を格納
+	// ローカル環境のカメラとマイク情報をlocalVideo属性に設定
   const stream = await navigator.mediaDevices.getUserMedia(
       {video: true, audio: true});
-	// index.htmlのlocalVideo属性に取得したデバイス情報を格納→ここで映像が流れる
   document.querySelector('#localVideo').srcObject = stream;
-	// stream情報をlocalStreamオブジェクトに格納→createRoom,joinroom関数で利用
   localStream = stream;
-	// リモート側のストリーム情報をremoteVideo属性に格納
-  remoteStream = new MediaStream();
-  document.querySelector('#remoteVideo').srcObject = remoteStream;
 
   console.log('Stream:', document.querySelector('#localVideo').srcObject);
-	// カメラ有効化ボタン以外を有効化する
+
   document.querySelector('#cameraBtn').disabled = true;
   document.querySelector('#joinBtn').disabled = false;
   document.querySelector('#createBtn').disabled = false;
@@ -258,64 +333,70 @@ async function hangUp(e) {
     track.stop();
   });
 
-  if (remoteStream) {
-    remoteStream.getTracks().forEach(track => track.stop());
-  }
+	if (remoteStreams.length) {
+		remoteStreams.forEach(remoteStream => {
+			remoteStream.getTracks().forEach(track => track.stop());
+		});
+	}
 
-  if (peerConnection) {
-    peerConnection.close();
-  }
+	if (peerConnections.legth) {
+		peerConnections.forEach(peerConnection => {
+			peerConnection.close();
+		});
+	}
 
   document.querySelector('#localVideo').srcObject = null;
-  document.querySelector('#remoteVideo').srcObject = null;
+	// TODO:remoteVideoを動的に増減させる
+  document.querySelector('#remoteVideo-1').srcObject = null;
+	document.querySelector('#remoteVideo-2').srcObject = null;
+	document.querySelector('#remoteVideo-3').srcObject = null;
   document.querySelector('#cameraBtn').disabled = false;
   document.querySelector('#joinBtn').disabled = true;
   document.querySelector('#createBtn').disabled = true;
   document.querySelector('#hangupBtn').disabled = true;
   document.querySelector('#currentRoom').innerText = '';
 
-  // Delete room on hangup
+  // Delete user on hangup
   if (roomId) {
     const db = firebase.firestore();
-    const roomRef = db.collection('rooms').doc(roomId);
-		// roomIdのサブコレクションcalleeCandidates配下のドキュメント全削除
-    const calleeCandidates = await roomRef.collection('calleeCandidates').get();
-    calleeCandidates.forEach(async candidate => {
-      await candidate.ref.delete();
+		db.collection('rooms').doc(roomId).collection('users').doc(localUserId).delete().then(function() {
+			console.log('delete user');
+		}).catch(error => {
+			console.error('Error removing document: ', error);
+		});
+		// ローカルユーザのサブコレクションiceCandidates配下のドキュメント全削除
+    const peerConnectionsRef = await db.collection('rooms').doc(roomId).collection('peerConnections').get();
+    peerConnectionsRef.forEach(async peerConn => {
+			console.log('debug: delete bofore:', peerConn.data().offerUserId);
+			if (peerConn.data().offerUserId == localUserId || peerConn.data().answerUserId == localUserId) {
+				console.log('delete peer connections collection\'s document:', peerConn.data().offerUserId);
+				await peerConn.ref.delete();
+			}
     });
-		// roomIdのサブコレクションcallerCandidates配下のドキュメント全削除
-    const callerCandidates = await roomRef.collection('callerCandidates').get();
-    callerCandidates.forEach(async candidate => {
-      await candidate.ref.delete();
-    });
-		// roomIdドキュメント削除※ドキュメント削除しても配下のサブコレクションは削除されない
-    await roomRef.delete();
   }
 
   document.location.reload(true);
 }
 
 // peerConnectionオブジェクトを監視し、状態変化があればコンソールログに表示
-function registerPeerConnectionListeners() {
-  peerConnection.addEventListener('icegatheringstatechange', () => {
+function registerPeerConnectionListeners(userId) {
+  peerConnections[userId].addEventListener('icegatheringstatechange', () => {
     console.log(
-        `ICE gathering state changed: ${peerConnection.iceGatheringState}`);
+        `ICE gathering state changed ${userId} : ${peerConnections[userId].iceGatheringState}`);
   });
 
-  peerConnection.addEventListener('connectionstatechange', () => {
-    console.log(`Connection state change: ${peerConnection.connectionState}`);
+  peerConnections[userId].addEventListener('connectionstatechange', () => {
+    console.log(`Connection state change ${userId} : ${peerConnections[userId].connectionState}`);
   });
 
-  peerConnection.addEventListener('signalingstatechange', () => {
-    console.log(`Signaling state change: ${peerConnection.signalingState}`);
+  peerConnections[userId].addEventListener('signalingstatechange', () => {
+    console.log(`Signaling state change ${userId} : ${peerConnections[userId].signalingState}`);
   });
 
-  peerConnection.addEventListener('iceconnectionstatechange ', () => {
+  peerConnections[userId].addEventListener('iceconnectionstatechange ', () => {
     console.log(
-        `ICE connection state change: ${peerConnection.iceConnectionState}`);
+        `ICE connection state change ${userId} : ${peerConnections[userId].iceConnectionState}`);
   });
 }
 
-// このJavaScriptで実行するのはinit()関数
 init();
-
