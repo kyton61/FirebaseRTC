@@ -44,6 +44,14 @@
         <span class="mdc-button__label">Hangup</span>
     </button>
 </div>
+<div class="mdc-switch">
+	<div class="mdc-switch__track"></div>
+	<div class="mdc-switch__thumb-underlay">
+		<div class="mdc-switch__thumb"></div>
+		<input type="checkbox" id="micBtn" class="mdc-switch__native-control" role="switch" aria-checked="false" onchange="updateAudioTrack()">
+	</div>
+</div>
+<span class="material-icons">mic</span>
 <div>
 		<!-- spanは改行無しグループ化用タグ -->
     <span id="currentRoom"></span>

@@ -1,3 +1,4 @@
+// See:https://github.com/material-components/material-components-web/blob/master/packages/material-components-web/index.ts
 mdc.ripple.MDCRipple.attachTo(document.querySelector('.mdc-button'));
 
 const configuration = {
@@ -16,6 +17,7 @@ let localStream = null;
 let roomDialog = null;
 let roomId = null;
 let localUserId = null;
+let switchControl = null;
 
 let peerConnections = {};
 let dataChannels ={};
@@ -27,6 +29,7 @@ function init() {
   document.querySelector('#createBtn').addEventListener('click', createRoom);
   document.querySelector('#joinBtn').addEventListener('click', joinRoom);
   roomDialog = new mdc.dialog.MDCDialog(document.querySelector('#room-dialog'));
+	switchControl = new mdc.switchControl.MDCSwitch(document.querySelector('.mdc-switch'));
 }
 
 async function createRoom() {
@@ -307,11 +310,33 @@ async function onRemoteStream(userId) {
 		} else if (remoteStreams.length == 2) {
       document.querySelector('#remoteVideo-2').srcObject = remoteStreams[1];
     } else if (remoteStreams.length >= 3) {
-			document.querySelector('#remoteVideo-2').srcObject = remoteStreams[2];
+			document.querySelector('#remoteVideo-3').srcObject = remoteStreams[2];
 		}
   });
 }
-					
+
+function updateAudioTrack() {
+	if (localStream) {
+		if (document.getElementById('micBtn').checked) {
+			localStream.getAudioTracks()[0].enabled = true;
+			//switchControl.setChecked(true);
+			console.log('Audio track on');
+		} else {
+			localStream.getAudioTracks()[0].enabled = false;
+			//switchControl.setChecked(false);
+			console.log('Audio track off');
+		}
+	} else {
+		console.log('Don\'t allowed using audio track.');
+	}
+}
+
+async function updateVideoEnabled(enabled) {
+	if (localStream) {
+		localStream.getVideoTracks()[0].enabled = enabled
+	}
+}
+
 async function openUserMedia(e) {
 	// ローカル環境のカメラとマイク情報をlocalVideo属性に設定
   const stream = await navigator.mediaDevices.getUserMedia(
@@ -325,6 +350,7 @@ async function openUserMedia(e) {
   document.querySelector('#joinBtn').disabled = false;
   document.querySelector('#createBtn').disabled = false;
   document.querySelector('#hangupBtn').disabled = false;
+	document.querySelector('#micBtn').disabled = false;
 }
 
 async function hangUp(e) {
@@ -354,6 +380,7 @@ async function hangUp(e) {
   document.querySelector('#joinBtn').disabled = true;
   document.querySelector('#createBtn').disabled = true;
   document.querySelector('#hangupBtn').disabled = true;
+	document.querySelector('#micBtn').disabled = true;
   document.querySelector('#currentRoom').innerText = '';
 
   // Delete user on hangup
