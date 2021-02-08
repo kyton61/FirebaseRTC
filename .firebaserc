@@ -1,6 +1,6 @@
 {
   "projects": {
-    "default": "fir-rtc-b1db8",
+    "default": "fifebasertc2",
     "dev": "fir-rtc-b1db8"
   }
 }

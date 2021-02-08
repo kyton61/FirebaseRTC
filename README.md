@@ -1,8 +1,8 @@
 # Firebase + WebRTC Codelab
-This is the GitHub repo for the copy of FirebaseRTC codelab. 
-Original repo will teach you how to use Firebase Cloud Firestore for
-signalling in a WebRTC video chat application.
+Firebase + WebRTCで動くビデオアプリケーションのサンプルコード
+See http://webrtc.org
+を修正して機能追加しています。
 
-This repo will be fixed by kyton61 to multi communication program.
-
-See http://webrtc.org for original code details.
+## 実装済み機能
+- 複数人通信（4人まで）
+- マイクのON/OFF機能

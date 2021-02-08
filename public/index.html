@@ -39,16 +39,20 @@
         <i class="material-icons mdc-button__icon" aria-hidden="true">group</i>
         <span class="mdc-button__label">Join room</span>
     </button>
+		<button class="mdc-button mdc-button--raised" disabled id="shareScreenBtn">
+				<i class="material-icons mdc-button__icon" aria-hidden="true">screen_share</i>
+				<span class="mdc-button__label">Share screen</span>
+		</button>
     <button class="mdc-button mdc-button--raised" disabled id="hangupBtn">
         <i class="material-icons mdc-button__icon" aria-hidden="true">close</i>
         <span class="mdc-button__label">Hangup</span>
     </button>
 </div>
-<div class="mdc-switch">
+<div class="mdc-switch mdc-switch--checked">
 	<div class="mdc-switch__track"></div>
 	<div class="mdc-switch__thumb-underlay">
 		<div class="mdc-switch__thumb"></div>
-		<input type="checkbox" id="micBtn" class="mdc-switch__native-control" role="switch" aria-checked="false" onchange="updateAudioTrack()">
+		<input type="checkbox" id="micBtn" class="mdc-switch__native-control" role="switch" aria-checked="true" onchange="updateAudioTrack()" checked>
 	</div>
 </div>
 <span class="material-icons">mic</span>

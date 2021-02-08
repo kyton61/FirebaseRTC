@@ -28,6 +28,7 @@ function init() {
   document.querySelector('#hangupBtn').addEventListener('click', hangUp);
   document.querySelector('#createBtn').addEventListener('click', createRoom);
   document.querySelector('#joinBtn').addEventListener('click', joinRoom);
+	document.querySelector('#shareScreenBtn').addEventListener('click', shareScreen);
   roomDialog = new mdc.dialog.MDCDialog(document.querySelector('#room-dialog'));
 	switchControl = new mdc.switchControl.MDCSwitch(document.querySelector('.mdc-switch'));
 }
@@ -35,6 +36,7 @@ function init() {
 async function createRoom() {
   document.querySelector('#createBtn').disabled = true;
   document.querySelector('#joinBtn').disabled = true;
+	document.querySelector('#shareScreenBtn').disabled = false;
 
 	// firestore接続用オブジェクトの作成
   const db = firebase.firestore();
@@ -74,6 +76,7 @@ async function createRoom() {
 function joinRoom() {
   document.querySelector('#createBtn').disabled = true;
   document.querySelector('#joinBtn').disabled = true;
+	document.querySelector('#shareScreenBtn').disabled = false;
 
 	// ダイアログ表示
   document.querySelector('#confirmJoinBtn').
@@ -120,42 +123,13 @@ async function joinRoomById(roomId) {
 					// firestoreのpeerConnectionsコレクションへの参照を準備
 					const peerConnectionsRef = roomRef.collection('peerConnections').doc();
 
-					// firestoreにoffer userとanswer userを登録
-					peerConnectionsRef.set({
-					  offerUserId: localUserId,
-					  answerUserId: user.id,
-					});
-
 					// ローカルストリーム情報をpeerConnectionオブジェクトに追加
 					localStream.getTracks().forEach(track => {
-					  peerConnections[user.id].addTrack(track, localStream);
-					});
+            peerConnections[user.id].addTrack(track, localStream);
+          });
 	
-					// peerConnections[user.id]のICE Candidateをリッスン
-					peerConnections[user.id].addEventListener('icecandidate', event => {
-						if (!event.candidate) {
-							console.log('Got final candidate!');
-							return;
-						}
-						console.log('Got cadidate: ', event.candidate);
-						// firestoreにローカルのICE Candidate情報を登録
-						peerConnectionsRef.collection('callerCandidates').add(event.candidate.toJSON());
-					});
-
 				  // SDP Offerの作成
-					peerConnections[user.id].createOffer().then(offer => {
-						peerConnections[user.id].setLocalDescription(offer);
-						console.log('Created offer:', offer);
-	
-						const peerConnWithOffer = {
-							'offer': {
-								type: offer.type,
-								sdp: offer.sdp,
-							},
-						};
-						// firestoreにSDP Offerを登録
-						peerConnectionsRef.update(peerConnWithOffer);
-					});
+					onCreateOffer(user.id, peerConnectionsRef);
 
 					// peerConnectionのトラックイベントをリッスン。リモートストリームの入力を監視する
 					onRemoteStream(user.id);
@@ -218,9 +192,9 @@ async function waitOffer(roomRef) {
           console.log('Register peerConnection listener: ', offerUserId);
 
           // ローカルストリーム情報をpeerConnectionオブジェクトに追加
-          localStream.getTracks().forEach(track => {
-            peerConnections[offerUserId].addTrack(track, localStream);
-          });
+					localStream.getTracks().forEach(track => {
+						peerConnections[offerUserId].addTrack(track, localStream);
+					});
 
           console.log('Offer user: ', offerUserId);
           console.log('Get remote sdp offer: ', offer);
@@ -246,7 +220,7 @@ async function waitOffer(roomRef) {
           await peerConnections[offerUserId].setRemoteDescription(new RTCSessionDescription(offer));
 
           // SDP Answerを返す
-					await onCreateAnswer(offerUserId,  roomRef, peerConnectionId);
+					await onCreateAnswer(offerUserId, peerConnectionsRef);
 
 					// リモートユーザのICE Candidatesを取得する
 					await onIceCandidates(offerUserId, roomRef, peerConnectionId, 'callerCandidates');
@@ -256,7 +230,41 @@ async function waitOffer(roomRef) {
   });
 }
 
-async function onCreateAnswer(userId, roomRef, peerConnectionId) {
+async function onCreateOffer(userId, peerConnectionsRef) {
+	// firestoreにoffer userとanswer userを登録
+	peerConnectionsRef.set({
+    offerUserId: localUserId,
+    answerUserId: userId,
+  });
+
+	// peerConnections[user.id]のICE Candidateをリッスン
+  peerConnections[userId].addEventListener('icecandidate', event => {
+    if (!event.candidate) {
+      console.log('Got final candidate!');
+      return;
+    }
+    console.log('Got cadidate: ', event.candidate);
+    // firestoreにローカルのICE Candidate情報を登録
+    peerConnectionsRef.collection('callerCandidates').add(event.candidate.toJSON());
+  });
+
+	// SDP Offerの作成
+  peerConnections[userId].createOffer().then(offer => {
+    peerConnections[userId].setLocalDescription(offer);
+    console.log('Created offer:', offer);
+
+    const peerConnWithOffer = {
+      'offer': {
+        type: offer.type,
+        sdp: offer.sdp,
+      },
+    };
+    // firestoreにSDP Offerを登録
+    peerConnectionsRef.update(peerConnWithOffer);
+  });
+}
+
+async function onCreateAnswer(userId, peerConnectionsRef) {
 	peerConnections[userId].createAnswer().then(answer => {
     peerConnections[userId].setLocalDescription(answer);
     console.log('Created answer: ', answer);
@@ -267,7 +275,7 @@ async function onCreateAnswer(userId, roomRef, peerConnectionId) {
         sdp: answer.sdp,
       },
     };
-    roomRef.collection('peerConnections').doc(peerConnectionId).update(peerConnWithAnswer);
+    peerConnectionsRef.update(peerConnWithAnswer);
     console.log('Set answer to firestore!');
   });
 }
@@ -297,11 +305,11 @@ function onAddIceCandidateError(error) {
 
 async function onRemoteStream(userId) {
 	peerConnections[userId].addEventListener('track', event => {
-    remoteStream = new MediaStream();
+		remoteStream = new MediaStream();
     console.log('Got remote track:', event.streams[0]);
     event.streams[0].getTracks().forEach(track => {
       console.log('Add a track to the remoteStream:', track);
-      remoteStream.addTrack(track);
+      remoteSender = remoteStream.addTrack(track);
     });
     remoteStreams.push(remoteStream);
     // TODO:#remoteVideoタグを接続数に応じて変更できるようにする
@@ -331,12 +339,47 @@ function updateAudioTrack() {
 	}
 }
 
-async function updateVideoEnabled(enabled) {
-	if (localStream) {
-		localStream.getVideoTracks()[0].enabled = enabled
-	}
-}
+async function shareScreen(e) {
+	document.querySelector('#shareScreenBtn').disabled = true;
 
+	await navigator.mediaDevices.getDisplayMedia(
+		{video: true})
+	.then(async stream => {
+		document.querySelector('#localVideo').srcObject = stream;
+		// スクリーンストリームからビデオトラックを取り出す
+		let screenTrack = stream.getVideoTracks()[0];
+
+		// 画面共有からの入力に切り替える
+		// TODO:RTCRtpTransceiverを理解する
+		Object.keys(peerConnections).forEach(id => {
+			// peer connectionから送信側のRTCRtpTransceiverを取り出す
+			let sender = peerConnections[id].getSenders().find(sdr => {
+			  return sdr.track.kind == screenTrack.kind;
+			});
+			sender.replaceTrack(screenTrack);
+			console.log('sender\'s new_track: ', screenTrack);
+		});
+		console.log('Start screen sharing.');
+
+		// 画面共有を終了したらカメラからの入力に戻す
+		stream.getVideoTracks()[0].addEventListener('ended', () => {
+			document.querySelector('#localVideo').srcObject = localStream;
+			let localStreamTrack = localStream.getVideoTracks()[0];
+			Object.keys(peerConnections).forEach(id => {
+				let sender = peerConnections[id].getSenders().find(sdr => {
+					return sdr.track.kind == localStreamTrack.kind;
+				});
+				sender.replaceTrack(localStreamTrack);
+			});
+			document.querySelector('#shareScreenBtn').disabled = false;
+			console.log('End screen sharing.');
+		});
+	})
+	.catch(error => {
+		console.log('getDesplayMedia error: ', error);
+	});
+}
+	
 async function openUserMedia(e) {
 	// ローカル環境のカメラとマイク情報をlocalVideo属性に設定
   const stream = await navigator.mediaDevices.getUserMedia(
@@ -349,6 +392,7 @@ async function openUserMedia(e) {
   document.querySelector('#cameraBtn').disabled = true;
   document.querySelector('#joinBtn').disabled = false;
   document.querySelector('#createBtn').disabled = false;
+	document.querySelector('#shareScreenBtn').disabled = true;
   document.querySelector('#hangupBtn').disabled = false;
 	document.querySelector('#micBtn').disabled = false;
 }
@@ -379,6 +423,7 @@ async function hangUp(e) {
   document.querySelector('#cameraBtn').disabled = false;
   document.querySelector('#joinBtn').disabled = true;
   document.querySelector('#createBtn').disabled = true;
+	document.querySelector('#shareScreenBtn').disabled = true;
   document.querySelector('#hangupBtn').disabled = true;
 	document.querySelector('#micBtn').disabled = true;
   document.querySelector('#currentRoom').innerText = '';
