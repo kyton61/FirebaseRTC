@@ -21,7 +21,6 @@ let switchControl = null;
 
 let peerConnections = {};
 let dataChannels ={};
-let remoteStreams = [];
 
 function init() {
   document.querySelector('#cameraBtn').addEventListener('click', openUserMedia);
@@ -304,21 +303,28 @@ function onAddIceCandidateError(error) {
 }
 
 async function onRemoteStream(userId) {
+	// ストリーミングが発生した場合、videoタグを追加する
 	peerConnections[userId].addEventListener('track', event => {
-		remoteStream = new MediaStream();
-    console.log('Got remote track:', event.streams[0]);
-    event.streams[0].getTracks().forEach(track => {
-      console.log('Add a track to the remoteStream:', track);
-      remoteSender = remoteStream.addTrack(track);
-    });
-    remoteStreams.push(remoteStream);
-    // TODO:#remoteVideoタグを接続数に応じて変更できるようにする
-		if (remoteStreams.length == 1) {
-			document.querySelector('#remoteVideo-1').srcObject = remoteStreams[0];
-		} else if (remoteStreams.length == 2) {
-      document.querySelector('#remoteVideo-2').srcObject = remoteStreams[1];
-    } else if (remoteStreams.length >= 3) {
-			document.querySelector('#remoteVideo-3').srcObject = remoteStreams[2];
+		if (!document.querySelector(`#remoteVideo-${userId}`)) {
+			remoteStream = new MediaStream();
+			console.log('Got remote track:', event.streams[0]);
+			event.streams[0].getTracks().forEach(track => {
+			  console.log('Add a track to the remoteStream:', track);
+			  remoteSender = remoteStream.addTrack(track);
+			});
+			let remoteVideo = document.createElement('video');
+			remoteVideo.autoplay = true;
+			remoteVideo.setAttribute('playsinline', '');
+			remoteVideo.id = `remoteVideo-${userId}`;
+			remoteVideo.srcObject = remoteStream;
+			document.getElementById('remote-videos').appendChild(remoteVideo);
+			console.log('Add a remote video');
+			// ストリーミングが停止した場合、videoタグを削除する
+			remoteVideo.addEventListener('ended', () => {
+				console.log('End remote track');
+				let remoteVideo = document.getElementById(`#remoteVideo-${userId}`);
+				remoteVideo.remove();
+			});
 		}
   });
 }
@@ -403,11 +409,13 @@ async function hangUp(e) {
     track.stop();
   });
 
-	if (remoteStreams.length) {
-		remoteStreams.forEach(remoteStream => {
-			remoteStream.getTracks().forEach(track => track.stop());
+	const remoteTracks = document.querySelectorAll('remoteVideo');
+	remoteTracks.forEach(remoteTrack => {
+		tracks = remoteTrack.srcObject.getTracks();
+		tracks.forEach(track => {
+			track.stop();
 		});
-	}
+	});
 
 	if (peerConnections.legth) {
 		peerConnections.forEach(peerConnection => {
@@ -416,10 +424,6 @@ async function hangUp(e) {
 	}
 
   document.querySelector('#localVideo').srcObject = null;
-	// TODO:remoteVideoを動的に増減させる
-  document.querySelector('#remoteVideo-1').srcObject = null;
-	document.querySelector('#remoteVideo-2').srcObject = null;
-	document.querySelector('#remoteVideo-3').srcObject = null;
   document.querySelector('#cameraBtn').disabled = false;
   document.querySelector('#joinBtn').disabled = true;
   document.querySelector('#createBtn').disabled = true;
