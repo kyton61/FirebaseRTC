@@ -18,11 +18,9 @@ let roomDialog = null;
 let roomId = null;
 let localUserId = null;
 let switchControl = null;
-let remoteSender = null;
 
 let peerConnections = {};
 let dataChannels ={};
-let remoteStreams = [];
 
 function init() {
   document.querySelector('#cameraBtn').addEventListener('click', openUserMedia);
@@ -312,9 +310,8 @@ async function onRemoteStream(userId) {
 			console.log('Got remote track:', event.streams[0]);
 			event.streams[0].getTracks().forEach(track => {
 			  console.log('Add a track to the remoteStream:', track);
-			  remoteSender = remoteStream.addTrack(track);
+			  remoteStream.addTrack(track);
 			});
-			remoteStreams.push(remoteStream);
 			let remoteVideo = document.createElement('video');
 			remoteVideo.autoplay = true;
 			remoteVideo.setAttribute('playsinline', '');
@@ -326,7 +323,6 @@ async function onRemoteStream(userId) {
   });
 	// ストリーミングが停止した場合、videoタグを削除する
 	peerConnections[userId].oniceconnectionstatechange = function() {
-    console.log( `!!!!!ICE connection state change ${userId} : ${peerConnections[userId].iceConnectionState}`);
 		if (peerConnections[userId].iceConnectionState == 'disconnected') {
 			const video = document.querySelector(`#remoteVideo-${userId}`);
 			console.log('Remove video track');
@@ -362,7 +358,6 @@ async function shareScreen(e) {
 		let screenTrack = stream.getVideoTracks()[0];
 
 		// 画面共有からの入力に切り替える
-		// TODO:RTCRtpTransceiverを理解する
 		Object.keys(peerConnections).forEach(id => {
 			// peer connectionから送信側のRTCRtpTransceiverを取り出す
 			let sender = peerConnections[id].getSenders().find(sdr => {
@@ -414,14 +409,7 @@ async function hangUp(e) {
   tracks.forEach(track => {
     track.stop();
   });
-/*
-	if (remoteStreams.length) {
-		remoteStreams.forEach(remoteStream => {
-			remoteStream.getTracks().forEach(track => track.stop());
-			console.log('Stop remote track: ');
-		});
-	}
-*/
+	
 	Object.keys(peerConnections).forEach(userId => {
 		peerConnections[userId].close();
 		console.log('Close peer connection: ', peerConnections[userId]);
