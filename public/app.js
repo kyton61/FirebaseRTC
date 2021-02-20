@@ -18,9 +18,11 @@ let roomDialog = null;
 let roomId = null;
 let localUserId = null;
 let switchControl = null;
+let remoteSender = null;
 
 let peerConnections = {};
 let dataChannels ={};
+let remoteStreams = [];
 
 function init() {
   document.querySelector('#cameraBtn').addEventListener('click', openUserMedia);
@@ -312,21 +314,25 @@ async function onRemoteStream(userId) {
 			  console.log('Add a track to the remoteStream:', track);
 			  remoteSender = remoteStream.addTrack(track);
 			});
+			remoteStreams.push(remoteStream);
 			let remoteVideo = document.createElement('video');
 			remoteVideo.autoplay = true;
 			remoteVideo.setAttribute('playsinline', '');
 			remoteVideo.id = `remoteVideo-${userId}`;
 			remoteVideo.srcObject = remoteStream;
-			document.getElementById('remote-videos').appendChild(remoteVideo);
+			document.getElementById('remoteVideos').appendChild(remoteVideo);
 			console.log('Add a remote video');
-			// ストリーミングが停止した場合、videoタグを削除する
-			remoteVideo.addEventListener('ended', () => {
-				console.log('End remote track');
-				let remoteVideo = document.getElementById(`#remoteVideo-${userId}`);
-				remoteVideo.remove();
-			});
 		}
   });
+	// ストリーミングが停止した場合、videoタグを削除する
+	peerConnections[userId].oniceconnectionstatechange = function() {
+    console.log( `!!!!!ICE connection state change ${userId} : ${peerConnections[userId].iceConnectionState}`);
+		if (peerConnections[userId].iceConnectionState == 'disconnected') {
+			const video = document.querySelector(`#remoteVideo-${userId}`);
+			console.log('Remove video track');
+			video.remove();
+		}
+  }
 }
 
 function updateAudioTrack() {
@@ -408,20 +414,18 @@ async function hangUp(e) {
   tracks.forEach(track => {
     track.stop();
   });
-
-	const remoteTracks = document.querySelectorAll('remoteVideo');
-	remoteTracks.forEach(remoteTrack => {
-		tracks = remoteTrack.srcObject.getTracks();
-		tracks.forEach(track => {
-			track.stop();
-		});
-	});
-
-	if (peerConnections.legth) {
-		peerConnections.forEach(peerConnection => {
-			peerConnection.close();
+/*
+	if (remoteStreams.length) {
+		remoteStreams.forEach(remoteStream => {
+			remoteStream.getTracks().forEach(track => track.stop());
+			console.log('Stop remote track: ');
 		});
 	}
+*/
+	Object.keys(peerConnections).forEach(userId => {
+		peerConnections[userId].close();
+		console.log('Close peer connection: ', peerConnections[userId]);
+	});
 
   document.querySelector('#localVideo').srcObject = null;
   document.querySelector('#cameraBtn').disabled = false;
