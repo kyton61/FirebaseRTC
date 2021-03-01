@@ -351,7 +351,7 @@ async function shareScreen(e) {
 	document.querySelector('#shareScreenBtn').disabled = true;
 
 	await navigator.mediaDevices.getDisplayMedia(
-		{video: true})
+		{audio: true, video: true})
 	.then(async stream => {
 		document.querySelector('#localVideo').srcObject = stream;
 		// スクリーンストリームからビデオトラックを取り出す
